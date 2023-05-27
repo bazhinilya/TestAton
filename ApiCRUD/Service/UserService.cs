@@ -1,39 +1,31 @@
 ﻿using ApiCRUD.Context;
 using ApiCRUD.Models.Entities;
 using ApiCRUD.Models.Enums;
+using ApiCRUD.Service.Exceptions;
 using ApiCRUD.Service.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 
 namespace ApiCRUD.Service
 {
     public class UserService : IUserService
     {
         private readonly UserContext _context;
-        private User _authorizationUser;
         public UserService(UserContext context) => _context = context;
-        public bool ValidateCredentials(string userName, string password)
-        {
-            _authorizationUser = _context.Users.FirstOrDefault(u => u.Login.Contains(userName) && u.Password == password);
-            return _authorizationUser != null;
-        }
 
         public async Task<ActionResult<User>> CreateUser(string login, string password, string name, Gender gender, DateTime? birthDay, bool admin)
         {
             try
             {
-                if (!_authorizationUser.Admin)
-                    throw new Exception("No access rights");
+                if (UserAuthorization.AuthorizedUser.Admin)
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
                 var userToCheckByNull = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login));
-                if (userToCheckByNull != null /*is not null*/)
-                    throw new Exception($"User {login} exists");
+                if (userToCheckByNull != null)
+                    throw new InvalidLoginException(login);
                 User userToCreate = new()
                 {
                     Guid = Guid.NewGuid(),
@@ -41,214 +33,192 @@ namespace ApiCRUD.Service
                     Password = password,
                     Name = name,
                     Gender = gender,
-                    BirthDay = birthDay,
+                    BirthDate = birthDay,
                     Admin = admin,
-                    CreatedBy = _authorizationUser.Login,
+                    CreatedBy = UserAuthorization.AuthorizedUser.Login,
                     CreatedOn = DateTime.Now
                 };
                 await _context.Users.AddAsync(userToCreate);
                 await _context.SaveChangesAsync();
                 return userToCreate;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
-        public async Task<ActionResult<User>> UpdateUser(string login, string fieldToUpdate)
+        public async Task<ActionResult<User>> UpdateUser(string login, string fieldToUpdate, string valueToUpdate)
         {
             try
             {
-                if (!(_authorizationUser.Admin || _authorizationUser.Login == login))
-                    throw new Exception("No access rights");
-                var userToUpdate = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login))
-                    ?? throw new Exception($"User {login} doesn't exist");
-                if (userToUpdate.RevokedOn != null)
-                    throw new Exception($"User's {login} not active");
-                if (DateTime.TryParse(fieldToUpdate, out DateTime birthDay)) 
+                if (!(UserAuthorization.AuthorizedUser.Admin || UserAuthorization.AuthorizedUser.Login == login))
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
+                var userToUpdate = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login));
+                if (userToUpdate == null || userToUpdate.RevokedOn != null)
+                    throw new NotFoundUserException(login);
+                switch (fieldToUpdate)
                 {
-                    userToUpdate.BirthDay = birthDay;
-                }
-                else if (int.TryParse(fieldToUpdate, out int gender))
-                {
-                    userToUpdate.Gender = (Gender)gender;
-                }
-                else
-                {
-                    userToUpdate.Name = fieldToUpdate;
+                    case "Name": 
+                        userToUpdate.Name = valueToUpdate;
+                        break;
+                    case "BirthDate":
+                        if (!DateTime.TryParse(valueToUpdate, out DateTime birthDate))
+                            throw new Exception("Invalid field value");
+                        userToUpdate.BirthDate = birthDate;
+                        break;
+                    case "Gender":
+                        if (int.TryParse(valueToUpdate, out int gender))
+                            throw new Exception("Invalid field value");
+                        userToUpdate.Gender = (Gender)gender;
+                        break;
+                    default: 
+                        throw new Exception("Invalid field value");
                 }
                 await _context.SaveChangesAsync();
                 return userToUpdate;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
         public async Task<ActionResult<User>> UpdatePassword(string login, string password) 
         {
             try
             {
-                if (!(_authorizationUser.Admin || _authorizationUser.Login == login))
-                    throw new Exception("No access rights");
-                var userToUpdate = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login))
-                    ?? throw new Exception($"User {login} doesn't exist");
-                if (userToUpdate.RevokedOn != null)
-                    throw new Exception($"User's {login} not active");
+                if (!(UserAuthorization.AuthorizedUser.Admin || UserAuthorization.AuthorizedUser.Login == login))
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
+                var userToUpdate = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login));
+                if (userToUpdate == null || userToUpdate.RevokedOn != null)
+                    throw new NotFoundUserException(login);
                 userToUpdate.Password = password;
                 await _context.SaveChangesAsync();
                 return userToUpdate;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
         public async Task<ActionResult<User>> UpdateLogin(string login, string newLogin)
         {
             try
             {
-                if (!(_authorizationUser.Admin || _authorizationUser.Login == login))
-                    throw new Exception("No access rights");
+                if (!(UserAuthorization.AuthorizedUser.Admin || UserAuthorization.AuthorizedUser.Login == login))
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
                 var userToVerifyLogin = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(newLogin));
                 if (userToVerifyLogin != null)
-                    throw new Exception($"User {newLogin} exists");
-                var userToUpdate = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login))
-                    ?? throw new Exception($"User {login} doesn't exist");
-                if (userToUpdate.RevokedOn != null)
-                    throw new Exception($"User's {login} not active");
+                    throw new InvalidLoginException(newLogin);
+                var userToUpdate = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login));
+                if (userToUpdate == null || userToUpdate.RevokedOn != null)    
+                    throw new NotFoundUserException(login);
                 userToUpdate.Login = newLogin;
                 await _context.SaveChangesAsync();
                 return userToUpdate;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
         public async Task<ActionResult<IEnumerable<User>>> Get()
         {
             try
             {
-                if (!_authorizationUser.Admin)
-                    throw new Exception("No access rights");
+                if (!UserAuthorization.AuthorizedUser.Admin)
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
                 var activeUsers = await _context.Users.Where(u => u.RevokedOn == null)?.OrderBy(u => u.CreatedOn).ToListAsync()
-                    ?? throw new Exception($"Users not found");
+                    ?? throw new NotFoundUserException();
                 return activeUsers;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
         public async Task<ActionResult<User>> Get(string login)
         {
             try
             {
-                if (!_authorizationUser.Admin)
-                    throw new Exception("No access rights");
+                if (!UserAuthorization.AuthorizedUser.Admin)
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
                 var userByLogin = _context.Users
                         .Where(u => u.Login.Contains(login))
                         ?.Select(u => new User
                         {
                             Name = u.Name,
                             Gender = u.Gender,
-                            BirthDay = u.BirthDay,
+                            BirthDate = u.BirthDate,
                             RevokedOn = u.RevokedOn
                         })
-                        ?? throw new Exception($"User {login} doesn't exist");
+                        ?? throw new NotFoundUserException(login);
                 return await userByLogin.FirstAsync();
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
-        }
-        public async Task<ActionResult<User>> Get(string login, string password)
-        {
-            try
-            {
-                if (_authorizationUser.RevokedOn != null)
-                    throw new Exception($"User's {login} not active");
-                var user = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login) && u.Password.Equals(password))
-                    ?? throw new Exception($"User {login} doesn't exist");
-                return user.Login == _authorizationUser.Login ? user : throw new Exception("No access rights");
-            }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
-        }
-        public async Task<ActionResult<IEnumerable<User>>> Get(DateTime age)
-        {
-            try
-            {
-                if (!_authorizationUser.Admin)
-                    throw new Exception("No access rights");
-                var usersByAge = await _context.Users.Where(u => u.BirthDay > age)?.ToListAsync()
-                    ?? throw new Exception($"Users not found");
-                return usersByAge;
-            }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
-        public async Task<ActionResult<User>> DeleteUser(string login, bool fullDelete = false)
+        public ActionResult<User> Get(string login, string password)
         {
             try
             {
-                if (!_authorizationUser.Admin)
-                    throw new Exception("No access rights");
-                var userByLogin = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login))
-                    ?? throw new Exception($"User {login} doesn't exist");
-                if (fullDelete)
+                if (!(UserAuthorization.AuthorizedUser.Login.Contains(login) && UserAuthorization.AuthorizedUser.Password == password))
+                    throw new AccessDeniedException();
+                if (UserAuthorization.AuthorizedUser.RevokedOn != null)
+                    throw new NotFoundUserException(login);
+                return UserAuthorization.AuthorizedUser;
+            }
+            catch { throw; }
+        }
+
+        public async Task<ActionResult<IEnumerable<User>>> Get(int age)
+        {
+            try
+            {
+                if (!UserAuthorization.AuthorizedUser.Admin)
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
+                var usersByAge = _context.Users
+                    .AsEnumerable()
+                    .Where(u => new DateTime(DateTime.Today.Subtract(u.BirthDate ?? DateTime.Today).Ticks).Year - 1 > age)?
+                    .ToList()
+                    ?? throw new NotFoundUserException();
+                return usersByAge;
+            }
+            catch { throw; }
+        }
+
+        public async Task<ActionResult<User>> DeleteUser(string login, bool isFullDelete = false)
+        {
+            try
+            {
+                if (!UserAuthorization.AuthorizedUser.Admin)
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
+                var userByLogin = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login)) 
+                    ?? throw new NotFoundUserException(login);
+                if (isFullDelete)
                 {
                     _context.Remove(userByLogin);
                 }
                 else if (userByLogin.RevokedOn == null)
                 {
                     userByLogin.RevokedOn = DateTime.Now;
-                    userByLogin.RevokedBy = _authorizationUser.Login;
+                    userByLogin.RevokedBy = UserAuthorization.AuthorizedUser.Login;
                 }
                 else
                 {
-                    throw new Exception($"User's {login} not active");
+                    throw new InvalidLoginException(login);
                 }
                 await _context.SaveChangesAsync();
                 return userByLogin;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
 
         public async Task<ActionResult<User>> RecoveryUser(string login) 
         {
             try
             {
-                if (!_authorizationUser.Admin)
-                    throw new Exception("No access rights");
+                if (!UserAuthorization.AuthorizedUser.Admin)
+                    throw new AccessDeniedException(UserAuthorization.AuthorizedUser.Login);
                 var userByLogin = await _context.Users.FirstOrDefaultAsync(u => u.Login.Contains(login))
-                   ?? throw new Exception($"User {login} doesn't exist");
+                   ?? throw new NotFoundUserException(login);
                 if (userByLogin.RevokedOn == null)
-                    throw new Exception($"User's {login} active");
+                    throw new InvalidLoginException(login);
                 userByLogin.RevokedOn = null;
                 userByLogin.RevokedBy = null;
                 await _context.SaveChangesAsync();
                 return userByLogin;
             }
-            catch (Exception ex)
-            {
-                return new NotFoundObjectResult($"InnerError: {ex.Message}");
-            }
+            catch { throw; }
         }
     }
 }

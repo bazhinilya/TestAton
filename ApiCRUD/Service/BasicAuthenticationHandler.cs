@@ -1,26 +1,33 @@
-﻿using Microsoft.AspNetCore.Authentication;
+﻿using ApiCRUD.Context;
+using ApiCRUD.Models.Entities;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Security.Claims;
-using System.Text.Encodings.Web;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Threading.Tasks;
-using System;
-using ApiCRUD.Service.Interfaces;
-using System.Linq;
 
 namespace ApiCRUD.Service
 {
+    internal static class UserAuthorization 
+    { 
+        internal static User AuthorizedUser { get; set; }
+    }
+
     public class BasicAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
     {
-        private readonly IUserService _userService;
-        public BasicAuthenticationHandler(IUserService userService,
+        private readonly UserContext _context;
+        public BasicAuthenticationHandler(UserContext context,
             IOptionsMonitor<AuthenticationSchemeOptions> options,
             ILoggerFactory logger,
             UrlEncoder encoder,
             ISystemClock clock) : base(options, logger, encoder, clock) =>
-                _userService = userService;
+                _context = context;
+
         protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
         {
             string userName;
@@ -30,7 +37,7 @@ namespace ApiCRUD.Service
                 var credentials = Encoding.UTF8.GetString(Convert.FromBase64String(authHeader.Parameter)).Split(':');
                 userName = credentials.FirstOrDefault();
                 var password = credentials.LastOrDefault();
-                if (!_userService.ValidateCredentials(userName, password)) 
+                if (!ValidateCredentials(userName, password)) 
                     throw new ArgumentException("Invalid credentials");
             }
             catch (Exception ex)
@@ -45,6 +52,13 @@ namespace ApiCRUD.Service
             var principal = new ClaimsPrincipal(identity);
             var ticket = new AuthenticationTicket(principal, Scheme.Name);
             return AuthenticateResult.Success(ticket);
+        }
+
+        private bool ValidateCredentials(string userName, string password)
+        {
+            var authorizationUser = _context.Users.FirstOrDefault(u => u.Login.Contains(userName) && u.Password == password);
+            UserAuthorization.AuthorizedUser = authorizationUser;
+            return authorizationUser != null;
         }
     }
 }
