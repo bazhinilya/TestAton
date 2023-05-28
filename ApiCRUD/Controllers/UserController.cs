@@ -83,9 +83,9 @@ namespace ApiCRUD.Controllers
         /// <summary>
         /// Запрос всех пользователей старше определённого возраста. 
         /// </summary>
-        [HttpGet("ReadByAge")]
-        public async Task<ActionResult<IEnumerable<User>>> Read(int age) =>
-            Ok(await _userService.Get(age));
+        [HttpGet("ReadByAge/{age}")]
+        public ActionResult<IEnumerable<User>> Read(int age) =>
+            Ok(_userService.Get(age));
         #endregion
 
         #region Delete

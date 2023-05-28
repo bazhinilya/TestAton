@@ -160,7 +160,7 @@ namespace ApiCRUD.Service
             catch { throw; }
         }
 
-        public async Task<ActionResult<IEnumerable<User>>> Get(int age)
+        public ActionResult<IEnumerable<User>> Get(int age)
         {
             try
             {

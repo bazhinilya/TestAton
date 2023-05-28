@@ -6,8 +6,8 @@ namespace ApiCRUD.Models.Entities
 {
     public class User
     {
-        private const string LATIN_NUMBERS_PATTERN = "^[A-Za-z0-9]*$";
-        private const string LATIN_RUSSIAN_PATTERN = "^[A-Za-zА-Яа-я]*$";
+        private const string LATIN_NUMBERS_PATTERN = "^[A-z0-9]*$";
+        private const string LATIN_RUSSIAN_PATTERN = "^[A-zА-я]*$";
         private const string PATTERN_ERROR = "The field contains invalid characters";
 
         #region Guid

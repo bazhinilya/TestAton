@@ -23,7 +23,7 @@ namespace ApiCRUD.Service.Interfaces
 
         ActionResult<User> Get(string login, string password);
 
-        Task<ActionResult<IEnumerable<User>>> Get(int age);
+        ActionResult<IEnumerable<User>> Get(int age);
 
         Task<ActionResult<User>> DeleteUser(string login, bool isFullDelete = false);
 
